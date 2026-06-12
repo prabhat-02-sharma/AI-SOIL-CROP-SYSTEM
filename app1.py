@@ -10,14 +10,12 @@ from utils.disease import disease_dic
 import requests
 import pickle
 import io
-import os, sys, glob, re
+import sys, glob, re
 import torch
 from torchvision import transforms
 from PIL import Image
 from utils.model import ResNet9
 
-
-# Loading plant disease classification model
 
 disease_classes = ['Apple___Apple_scab',
                    'Apple___Black_rot',
@@ -58,19 +56,39 @@ disease_classes = ['Apple___Apple_scab',
                    'Tomato___Tomato_mosaic_virus',
                    'Tomato___healthy']
 
+app = Flask(__name__)
+
+# ✅ All models set to None — loaded lazily on first request
+model = None
+ferti = None
+SoilNet = None
+svm = None
+disease_model = None
+
+model_path = "SoilNet_93_86.h5"
 disease_model_path = 'plant_disease_model.pth'
-disease_model = ResNet9(3, len(disease_classes))
-disease_model.load_state_dict(torch.load(
-    disease_model_path, map_location=torch.device('cpu')))
-disease_model.eval()
+
+def load_models():
+    global model, ferti, SoilNet, svm, disease_model
+    if svm is None:
+        file = open('cropmodel2.pkl', 'rb')
+        svm = pickle.load(file)
+        file.close()
+    if model is None:
+        model = pickle.load(open('classifier.pkl', 'rb'))
+    if ferti is None:
+        ferti = pickle.load(open('fertilizer.pkl', 'rb'))
+    if SoilNet is None:
+        SoilNet = load_model(model_path)
+    if disease_model is None:
+        disease_model = ResNet9(3, len(disease_classes))
+        disease_model.load_state_dict(torch.load(
+            disease_model_path, map_location=torch.device('cpu')))
+        disease_model.eval()
 
 
-def predict_image(img, model=disease_model):
-    """
-    Transforms image to tensor and predicts disease label
-    :params: image
-    :return: prediction (string)
-    """
+def predict_image(img):
+    load_models()
     transform = transforms.Compose([
         transforms.Resize(256),
         transforms.ToTensor(),
@@ -78,206 +96,121 @@ def predict_image(img, model=disease_model):
     image = Image.open(io.BytesIO(img))
     img_t = transform(image)
     img_u = torch.unsqueeze(img_t, 0)
-
-    # Get predictions from model
-    yb = model(img_u)
-    # Pick index with highest probability
+    yb = disease_model(img_u)
     _, preds = torch.max(yb, dim=1)
     prediction = disease_classes[preds[0].item()]
-    # Retrieve the class label
     return prediction
 
 
+classes = {
+    0: "Alluvial Soil:-{ Rice,Wheat,Sugarcane,Maize,Cotton,Soyabean,Jute }",
+    1: "Black Soil:-{ Virginia, Wheat , Jowar,Millets,Linseed,Castor,Sunflower} ",
+    2: "Clay Soil:-{ Rice,Lettuce,Chard,Broccoli,Cabbage,Snap Beans }",
+    3: "Red Soil:{ Cotton,Wheat,Pilses,Millets,OilSeeds,Potatoes }"
+}
 
-file = open('cropmodel2.pkl', 'rb')
-svm = pickle.load(file)
-file.close()
 
-app = Flask(__name__)
-
-model = pickle.load(open('classifier.pkl','rb'))
-ferti = pickle.load(open('fertilizer.pkl','rb'))
-
-model_path = "SoilNet_93_86.h5"
-
-SoilNet = load_model(model_path)
-
-classes = {0:"Alluvial Soil:-{ Rice,Wheat,Sugarcane,Maize,Cotton,Soyabean,Jute }",1:"Black Soil:-{ Virginia, Wheat , Jowar,Millets,Linseed,Castor,Sunflower} ",2:"Clay Soil:-{ Rice,Lettuce,Chard,Broccoli,Cabbage,Snap Beans }",3:"Red Soil:{ Cotton,Wheat,Pilses,Millets,OilSeeds,Potatoes }"}
-
-def model_predict(image_path,model):
+def model_predict(image_path, model):
     print("Predicted")
-    image = load_img(image_path,target_size=(224,224))
+    image = load_img(image_path, target_size=(224, 224))
     image = img_to_array(image)
-    image = image/255
-    image = np.expand_dims(image,axis=0)
-    
+    image = image / 255
+    image = np.expand_dims(image, axis=0)
     result = np.argmax(model.predict(image))
-    prediction = classes[result]
-    
-    
+
     if result == 0:
-        print("Alluvial.html")
-        
-        return "Alluvial","Alluvial.html"
+        return "Alluvial", "Alluvial.html"
     elif result == 1:
-        print("Black.html")
-        
         return "Black", "Black.html"
     elif result == 2:
-        print("Clay.html")
-        
-        return "Clay" , "Clay.html"
+        return "Clay", "Clay.html"
     elif result == 3:
-        print("Red.html")
-        
-        return "Red" , "Red.html"
-    
+        return "Red", "Red.html"
 
 
-mapper = {1: 'rice',
-          2: 'maize',
-          3: 'chickpea',
-          4: 'kidneybeans',
-          5: 'pigeonpeas',
-          6: 'mothbeans',
-          7: 'mungbean',
-          8: 'blackgram',
-          9: 'lentil',
-          10: 'pomegranate',
-          11: 'banana',
-          12: 'mango',
-          13: 'grapes',
-          14: 'watermelon',
-          15: 'muskmelon',
-          16: 'apple',
-          17: 'orange',
-          18: 'papaya',
-          19: 'coconut',
-          20: 'cotton',
-          21: 'jute',
-          22: 'coffee'}
+mapper = {1: 'rice', 2: 'maize', 3: 'chickpea', 4: 'kidneybeans',
+          5: 'pigeonpeas', 6: 'mothbeans', 7: 'mungbean', 8: 'blackgram',
+          9: 'lentil', 10: 'pomegranate', 11: 'banana', 12: 'mango',
+          13: 'grapes', 14: 'watermelon', 15: 'muskmelon', 16: 'apple',
+          17: 'orange', 18: 'papaya', 19: 'coconut', 20: 'cotton',
+          21: 'jute', 22: 'coffee'}
 
 fertilizer_dic = {
     'NHigh': """The N value of soil is high and might give rise to weeds.
         <br/> Please consider the following suggestions:
-
-        <br/><br/> 1. <i> Manure </i> – adding manure is one of the simplest ways to amend your soil with nitrogen. Be careful as there are various types of manures with varying degrees of nitrogen.
-
-        <br/> 2. <i>Coffee grinds </i> – use your morning addiction to feed your gardening habit! Coffee grinds are considered a green compost material which is rich in nitrogen. Once the grounds break down, your soil will be fed with delicious, delicious nitrogen. An added benefit to including coffee grounds to your soil is while it will compost, it will also help provide increased drainage to your soil.
-
-        <br/>3. <i>Plant nitrogen fixing plants</i> – planting vegetables that are in Fabaceae family like peas, beans and soybeans have the ability to increase nitrogen in your soil
-
-        <br/>4. Plant ‘green manure’ crops like cabbage, corn and brocolli
-
-        <br/>5. <i>Use mulch (wet grass) while growing crops</i> - Mulch can also include sawdust and scrap soft woods""",
+        <br/><br/> 1. <i> Manure </i> – adding manure is one of the simplest ways to amend your soil with nitrogen.
+        <br/> 2. <i>Coffee grinds </i> – rich in nitrogen and helps drainage.
+        <br/>3. <i>Plant nitrogen fixing plants</i> – like peas, beans and soybeans.
+        <br/>4. Plant 'green manure' crops like cabbage, corn and brocolli.
+        <br/>5. <i>Use mulch (wet grass) while growing crops</i>""",
 
     'Nlow': """The N value of your soil is low.
         <br/> Please consider the following suggestions:
-        <br/><br/> 1. <i>Add sawdust or fine woodchips to your soil</i> – the carbon in the sawdust/woodchips love nitrogen and will help absorb and soak up and excess nitrogen.
-
-        <br/>2. <i>Plant heavy nitrogen feeding plants</i> – tomatoes, corn, broccoli, cabbage and spinach are examples of plants that thrive off nitrogen and will suck the nitrogen dry.
-
-        <br/>3. <i>Water</i> – soaking your soil with water will help leach the nitrogen deeper into your soil, effectively leaving less for your plants to use.
-
-        <br/>4. <i>Sugar</i> – In limited studies, it was shown that adding sugar to your soil can help potentially reduce the amount of nitrogen is your soil. Sugar is partially composed of carbon, an element which attracts and soaks up the nitrogen in the soil. This is similar concept to adding sawdust/woodchips which are high in carbon content.
-
-        <br/>5. Add composted manure to the soil.
-
-        <br/>6. Plant Nitrogen fixing plants like peas or beans.
-
-        <br/>7. <i>Use NPK fertilizers with high N value.
-
-        <br/>8. <i>Do nothing</i> – It may seem counter-intuitive, but if you already have plants that are producing lots of foliage, it may be best to let them continue to absorb all the nitrogen to amend the soil for your next crops.""",
+        <br/><br/> 1. <i>Add sawdust or fine woodchips to your soil</i>
+        <br/>2. <i>Plant heavy nitrogen feeding plants</i> – tomatoes, corn, broccoli, cabbage and spinach.
+        <br/>3. <i>Water</i> – soaking your soil with water will help leach the nitrogen deeper.
+        <br/>4. Add composted manure to the soil.
+        <br/>5. Plant Nitrogen fixing plants like peas or beans.
+        <br/>6. <i>Use NPK fertilizers with high N value.</i>""",
 
     'PHigh': """The P value of your soil is high.
         <br/> Please consider the following suggestions:
-
-        <br/><br/>1. <i>Avoid adding manure</i> – manure contains many key nutrients for your soil but typically including high levels of phosphorous. Limiting the addition of manure will help reduce phosphorus being added.
-
-        <br/>2. <i>Use only phosphorus-free fertilizer</i> – if you can limit the amount of phosphorous added to your soil, you can let the plants use the existing phosphorus while still providing other key nutrients such as Nitrogen and Potassium. Find a fertilizer with numbers such as 10-0-10, where the zero represents no phosphorous.
-
-        <br/>3. <i>Water your soil</i> – soaking your soil liberally will aid in driving phosphorous out of the soil. This is recommended as a last ditch effort.
-
-        <br/>4. Plant nitrogen fixing vegetables to increase nitrogen without increasing phosphorous (like beans and peas).
-
+        <br/><br/>1. <i>Avoid adding manure</i>
+        <br/>2. <i>Use only phosphorus-free fertilizer</i>
+        <br/>3. <i>Water your soil</i> – soaking will aid in driving phosphorous out.
+        <br/>4. Plant nitrogen fixing vegetables like beans and peas.
         <br/>5. Use crop rotations to decrease high phosphorous levels""",
 
     'Plow': """The P value of your soil is low.
         <br/> Please consider the following suggestions:
+        <br/><br/>1. <i>Bone meal</i> – rich in phosphorous.
+        <br/>2. <i>Rock phosphate</i> – a slower acting source.
+        <br/>3. <i>Phosphorus Fertilizers</i> – high phosphorous content in NPK ratio.
+        <br/>4. <i>Organic compost</i>
+        <br/>5. <i>Manure</i>
+        <br/>6. <i>Ensure proper soil pH</i> – 6.0 to 7.0 range is optimal.""",
 
-        <br/><br/>1. <i>Bone meal</i> – a fast acting source that is made from ground animal bones which is rich in phosphorous.
-
-        <br/>2. <i>Rock phosphate</i> – a slower acting source where the soil needs to convert the rock phosphate into phosphorous that the plants can use.
-
-        <br/>3. <i>Phosphorus Fertilizers</i> – applying a fertilizer with a high phosphorous content in the NPK ratio (example: 10-20-10, 20 being phosphorous percentage).
-
-        <br/>4. <i>Organic compost</i> – adding quality organic compost to your soil will help increase phosphorous content.
-
-        <br/>5. <i>Manure</i> – as with compost, manure can be an excellent source of phosphorous for your plants.
-
-        <br/>6. <i>Clay soil</i> – introducing clay particles into your soil can help retain & fix phosphorus deficiencies.
-
-        <br/>7. <i>Ensure proper soil pH</i> – having a pH in the 6.0 to 7.0 range has been scientifically proven to have the optimal phosphorus uptake in plants.
-
-        <br/>8. If soil pH is low, add lime or potassium carbonate to the soil as fertilizers. Pure calcium carbonate is very effective in increasing the pH value of the soil.
-
-        <br/>9. If pH is high, addition of appreciable amount of organic matter will help acidify the soil. Application of acidifying fertilizers, such as ammonium sulfate, can help lower soil pH""",
-
-    'KHigh': """The K value of your soil is high</b>.
+    'KHigh': """The K value of your soil is high.
         <br/> Please consider the following suggestions:
-
-        <br/><br/>1. <i>Loosen the soil</i> deeply with a shovel, and water thoroughly to dissolve water-soluble potassium. Allow the soil to fully dry, and repeat digging and watering the soil two or three more times.
-
-        <br/>2. <i>Sift through the soil</i>, and remove as many rocks as possible, using a soil sifter. Minerals occurring in rocks such as mica and feldspar slowly release potassium into the soil slowly through weathering.
-
-        <br/>3. Stop applying potassium-rich commercial fertilizer. Apply only commercial fertilizer that has a '0' in the final number field. Commercial fertilizers use a three number system for measuring levels of nitrogen, phosphorous and potassium. The last number stands for potassium. Another option is to stop using commercial fertilizers all together and to begin using only organic matter to enrich the soil.
-
-        <br/>4. Mix crushed eggshells, crushed seashells, wood ash or soft rock phosphate to the soil to add calcium. Mix in up to 10 percent of organic compost to help amend and balance the soil.
-
-        <br/>5. Use NPK fertilizers with low K levels and organic fertilizers since they have low NPK values.
-
-        <br/>6. Grow a cover crop of legumes that will fix nitrogen in the soil. This practice will meet the soil’s needs for nitrogen without increasing phosphorus or potassium.
-        """,
+        <br/><br/>1. <i>Loosen the soil</i> deeply and water thoroughly.
+        <br/>2. <i>Sift through the soil</i> and remove rocks.
+        <br/>3. Stop applying potassium-rich commercial fertilizer.
+        <br/>4. Mix crushed eggshells or wood ash to add calcium.
+        <br/>5. Use NPK fertilizers with low K levels.""",
 
     'Klow': """The K value of your soil is low.
         <br/>Please consider the following suggestions:
-
         <br/><br/>1. Mix in muricate of potash or sulphate of potash
         <br/>2. Try kelp meal or seaweed
         <br/>3. Try Sul-Po-Mag
         <br/>4. Bury banana peels an inch below the soils surface
-        <br/>5. Use Potash fertilizers since they contain high values potassium
-        """
+        <br/>5. Use Potash fertilizers since they contain high values potassium"""
 }
 
-@app.route('/',methods=['GET'])
+
+@app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')
 
 
-
-@app.route('/predict',methods=['GET','POST'])
+@app.route('/predict', methods=['GET', 'POST'])
 def predict():
+    load_models()  # ✅ lazy load
     print("Entered")
     if request.method == 'POST':
-        print("Entered here")
-        file = request.files['image'] # fet input
-        filename = file.filename        
+        file = request.files['image']
+        filename = file.filename
         print("@@ Input posted = ", filename)
-        
         file_path = os.path.join('static/user uploaded', filename)
         file.save(file_path)
-
         print("@@ Predicting class......")
-        pred, output_page = model_predict(file_path,SoilNet)
-              
-        return render_template(output_page, pred_output = pred, user_image = file_path)
-    
-#####
-    
+        pred, output_page = model_predict(file_path, SoilNet)
+        return render_template(output_page, pred_output=pred, user_image=file_path)
+
+
 @app.route('/predict1', methods=['GET', 'POST'])
 def predict1():
-
+    load_models()  # ✅ lazy load
     if request.method == 'POST':
         mydict = request.form
         nitrogen = mydict.get('nitrogen')
@@ -291,68 +224,44 @@ def predict1():
         input_features = [nitrogen, phosphorus, potassium,
                           temperature, humidity, ph, rainfall]
 
-        # for i in input_features:
-        #     print(i)
         inf = svm.predict([input_features])
         inf = inf[0]
         value = mapper[inf]
-        print(value)
 
         df = pd.read_csv('fertilizer.csv')
-        print(df.head())
-
         nitro = df[df['Crop'] == value]['N'].iloc[0]
         phos = df[df['Crop'] == value]['P'].iloc[0]
         pota = df[df['Crop'] == value]['K'].iloc[0]
-        print(f' Nitrogen is : {nitro},phos is : {phos},potassium is : {pota}')
-        # print(nitrogen)
 
-        print(int(nitro)-int(nitrogen))
-
-        n = int(nitro)-int(nitrogen)
-        p = int(phos)-int(phosphorus)
-        k = int(pota)-int(potassium)
+        n = int(nitro) - int(nitrogen)
+        p = int(phos) - int(phosphorus)
+        k = int(pota) - int(potassium)
 
         temp = {abs(n): "N", abs(p): "P", abs(k): "K"}
         max_val = temp[max(temp.keys())]
-        print(f' Max val is : {max_val}')
 
         if max_val == 'N':
-            if n < 0:
-                key = 'NHigh'
-
-            else:
-                key = 'Nlow'
-
+            key = 'NHigh' if n < 0 else 'Nlow'
         elif max_val == 'P':
-            if p < 0:
-                key = 'PHigh'
-            else:
-                key = 'Plow'
-
+            key = 'PHigh' if p < 0 else 'Plow'
         else:
-            if k < 0:
-                key = 'KHigh'
-            else:
-                key = 'Klow'
+            key = 'KHigh' if k < 0 else 'Klow'
 
         response = Markup(str(fertilizer_dic[key]))
-
         value = value.capitalize()
-
         return render_template('result.html', inf=response, value=value)
 
     return render_template('predict1.html')
 
-#####
 
 @app.route('/Model1')
 def Model1():
     return render_template('Model1.html')
 
 
-@app.route('/predict2',methods=['POST'])
+@app.route('/predict2', methods=['POST'])
 def predict2():
+    load_models()  # ✅ lazy load
     temp = request.form.get('temp')
     humi = request.form.get('humid')
     mois = request.form.get('mois')
@@ -361,16 +270,15 @@ def predict2():
     nitro = request.form.get('nitro')
     pota = request.form.get('pota')
     phosp = request.form.get('phos')
-    if None in (temp, humi, mois, soil, crop, nitro, pota, phosp) or not all(val.isdigit() for val in (temp, humi, mois, soil, crop, nitro, pota, phosp)):
+
+    if None in (temp, humi, mois, soil, crop, nitro, pota, phosp) or not all(
+            val.isdigit() for val in (temp, humi, mois, soil, crop, nitro, pota, phosp)):
         return render_template('Model1.html', x='Invalid input. Please provide numeric values for all fields.')
 
-# Convert values to integers
-    input = [int(temp), int(humi), int(mois), int(soil), int(crop), int(nitro), int(pota), int(phosp)]
+    input = [int(temp), int(humi), int(mois), int(soil),
+             int(crop), int(nitro), int(pota), int(phosp)]
     res = ferti.classes_[model.predict([input])]
     return render_template('Model1.html', x=res)
-
-
-# render disease prediction result page
 
 
 @app.route('/disease-predict')
@@ -378,9 +286,10 @@ def disease_predict():
     title = 'Harvestify - Disease Detection'
     return render_template('disease.html', title=title)
 
-# Define route for processing disease prediction
+
 @app.route('/disease-predict', methods=['POST'])
 def disease_prediction():
+    load_models()  # ✅ lazy load
     title = 'Harvestify - Disease Detection'
     if 'file' not in request.files:
         return render_template('disease.html', title=title, error="No file uploaded")
@@ -393,11 +302,10 @@ def disease_prediction():
         prediction = Markup(str(disease_dic.get(prediction, "Unknown disease")))
         return render_template('disease-result.html', prediction=prediction, title=title)
     except Exception as e:
-        # Handle specific exceptions here
         print(f"An error occurred: {str(e)}")
         return render_template('disease.html', title=title, error="Error processing image")
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True, threaded=False)
-    
