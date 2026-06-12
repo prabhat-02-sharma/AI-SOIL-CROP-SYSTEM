@@ -1,5 +1,6 @@
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
+import os
 import numpy as np
 from flask import Flask, request, render_template
 from markupsafe import Markup
@@ -397,5 +398,6 @@ def disease_prediction():
         return render_template('disease.html', title=title, error="Error processing image")
 
 if __name__ == '__main__':
-    app.run(debug=True,threaded=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True, threaded=False)
     
